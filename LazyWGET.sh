@@ -56,6 +56,63 @@ wget "$received_url" -O "$dir_download/$name"
 # in cazul in care unele URL-uri mai primare contin .html la final de URL, il pastram,
 # iar daca nu au il adaugam, astfel sigur orice ajunge la wget-ul de download are extensia HTML
 
-mkdir "$dir_download/.lwget/" # fisierul de istoric
+mkdir -p "$dir_download/.lwget/" # fisierul de istoric
 touch "$dir_download/.lwget/pending.txt" # lista de promisiuni evaluate
 touch "$dir_download/.lwget/downloaded.txt" # lista de file uri descarcate anterior
+
+#variabila pt fiecare fisier pentru a fii mai usor de citit
+pending_file="$dir_download/.lwget/pending.txt"
+downloaded_file="$dir_download/.lwget/downloaded.txt"
+
+# verifica daca URL-ul abia downloadat se afla in vreuna dintre file uri si urmeaza logica:
+# nu este in niciun file -> downloaded.txt
+# este in pending.txt -> delete from pending.txt si pune-l in downloaded
+# este in downloaded(caz care nu ar trebuii sa se intample nimic) -> duplicat, programul nu face nimic
+
+if grep -Fqx  "$received_url" "$pending_file"; then
+    # sterge din pending.txt si pune acolo
+    grep -qv "$received_url" "$pending_file" > "$dir_download/.lwget/temp.txt"
+    mv "$dir_download/.lwget/temp.txt" "$pending_file"
+    if ! grep -q "$received_url" "$downloaded_file"; then 
+        echo "$received_url" >> "$downloaded_file"
+    fi
+elif grep -Fqx "$received_url" "$downloaded_file" && ! grep -Fqx "$received_url" "$pending_file"; then
+    true
+else # nu e in niciuna? pune-o in downloaded.txt
+    echo "$received_url" >> "$downloaded_file"
+fi
+
+# pup(scoti usor href din a, fara sa reinventezi roata) sau html-xml-utils
+# pup 'a[href^="http"] attr{href}' < "$dir_download/$name" | while read -r received_url; do
+#    if grep -q  "$received_url" "$pending_file"; then
+#        # sterge din pending.txt si pune acolo
+#        sed -i "/$received_url/d" "$pending_file"
+#        echo "$received_url" >> "$downloaded_file" 
+#    elif grep -q "$received_url" "$downloaded_file"; then
+#        true
+#    else # nu e in niciuna? pune-o in downloaded.txt
+#        echo "$received_url" >> "$downloaded_file"
+#    fi
+# done
+# pup nu este pe o instalare standard linux :(
+
+
+# implementare semi esuata, dureaza foarte mult in rest e chiar okay, merge bine
+# wget --spider \
+#     --force-html \
+#     --base="$received_url" \
+#     --follow-tags=a,link \
+#     -i "$dir_download/$name" \
+#     -o "$dir_download/.lwget/spider.log"
+
+# hai cu grep :(
+# daca ai gasit un href in HTML-ul downloadat, sectioneaza linkurile dupa / si citeste-le pe fiecare
+grep -Ei -o 'href="[^\"]+"' "$dir_download/$name" | sed 's/href="//i;s/"//' | while read -r found_link; do    
+    if [[ "$found_link" =~ ^http ]]; then # ai gasit minim http?
+        if grep -Fqx "$found_link" "$downloaded_file" || grep -Fqx "$found_link" "$pending_file"; then
+            true # daca e deja la locul lui, nu mai conteaza
+        else
+            echo "$found_link" >> "$pending_file" # altfel, pune-l in pending_file.
+        fi
+    fi
+done
